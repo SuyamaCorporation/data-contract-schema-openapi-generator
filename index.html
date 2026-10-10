@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Data Contract Schema &amp; OpenAPI Spec Generator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+  <div class="max-w-5xl mx-auto px-4 py-8">
+    <header class="mb-8">
+      <h1 class="text-3xl font-bold text-indigo-400">OpenAPI 3.1 Schema Generator</h1>
+      <p class="text-gray-400 mt-1">Build OpenAPI YAML stubs from form-defined fields</p>
+    </header>
+
+    <!-- Schema Meta -->
+    <section class="bg-gray-900 rounded-xl p-6 mb-6" aria-label="Schema metadata">
+      <h2 class="text-lg font-semibold text-gray-200 mb-4">Schema Metadata</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+          <label for="schemaTitle" class="block text-sm text-gray-400 mb-1">Schema Title</label>
+          <input id="schemaTitle" type="text" value="MyModel" placeholder="MyModel"
+            class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            aria-label="Schema title" />
+        </div>
+        <div>
+          <label for="apiTitle" class="block text-sm text-gray-400 mb-1">API Title</label>
+          <input id="apiTitle" type="text" value="My API" placeholder="My API"
+            class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            aria-label="API title" />
+        </div>
+        <div>
+          <label for="apiVersion" class="block text-sm text-gray-400 mb-1">API Version</label>
+          <input id="apiVersion" type="text" value="1.0.0" placeholder="1.0.0"
+            class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            aria-label="API version" />
+        </div>
+      </div>
+    </section>
+
+    <!-- Field Definitions -->
+    <section class="bg-gray-900 rounded-xl p-6 mb-6" aria-label="Field definitions">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-gray-200">Fields <span id="fieldCount" class="text-sm text-gray-500">(0/20)</span></h2>
+        <button id="addFieldBtn"
+          class="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          aria-label="Add new field">
+          + Add Field
+        </button>
+      </div>
+
+      <!-- Column Headers -->
+      <div class="hidden sm:grid grid-cols-12 gap-2 text-xs text-gray-500 uppercase tracking-wide mb-2 px-2">
+        <div class="col-span-3">Field Name</div>
+        <div class="col-span-2">Type</div>
+        <div class="col-span-2">Format</div>
+        <div class="col-span-1">Required</div>
+        <div class="col-span-3">Description</div>
+        <div class="col-span-1"></div>
+      </div>
+
+      <div id="fieldRows" role="list" aria-label="Field list" aria-live="polite" class="space-y-2">
+        <!-- Dynamic rows inserted here -->
+      </div>
+
+      <p id="emptyMsg" class="text-center text-gray-600 py-8">No fields yet. Click &ldquo;Add Field&rdquo; to begin.</p>
+    </section>
+
+    <!-- Actions -->
+    <div class="flex flex-wrap gap-3 mb-6">
+      <button id="generateBtn"
+        class="bg-green-600 hover:bg-green-500 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-green-400"
+        aria-label="Generate OpenAPI YAML">
+        Generate OpenAPI YAML
+      </button>
+      <button id="copyBtn" disabled
+        class="bg-gray-700 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold px-6 py-2.5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-gray-400"
+        aria-label="Copy YAML to clipboard">
+        Copy YAML
+      </button>
+      <button id="clearBtn"
+        class="bg-red-700 hover:bg-red-600 text-white font-medium px-4 py-2.5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-red-400"
+        aria-label="Clear all fields">
+        Clear All
+      </button>
+    </div>
+
+    <!-- YAML Output -->
+    <section class="bg-gray-900 rounded-xl p-6" aria-label="YAML output">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold text-gray-200">Generated YAML</h2>
+        <span id="copyStatus" class="text-sm text-green-400 opacity-0 transition-opacity" aria-live="polite">Copied!</span>
+      </div>
+      <textarea id="yamlOutput" readonly
+        class="w-full h-96 bg-gray-800 border border-gray-700 rounded-lg p-4 text-sm font-mono text-green-300 resize-y focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        placeholder="Click &quot;Generate OpenAPI YAML&quot; to see output here..."
+        aria-label="OpenAPI YAML output" aria-live="polite"></textarea>
+    </section>
+  </div>
+
+  <script>
+    (() => {
+      const STORAGE_KEY = 'openapi_gen_fields_v1';
+      const STORAGE_META_KEY = 'openapi_gen_meta_v1';
+      const MAX_FIELDS = 20;
+
+      const TYPES = ['string', 'integer', 'number', 'boolean', 'array', 'object'];
+      const FORMATS = {
+        string: ['none', 'date', 'date-time', 'uuid', 'email', 'uri', 'password', 'byte', 'binary'],
+        integer: ['none', 'int32', 'int64'],
+        number: ['none', 'float', 'double'],
+        boolean: ['none'],
+        array: ['none'],
+        object: ['none'],
+      };
+
+      let fields = [];
+      let nextId = 1;
+
+      // DOM refs
+      const fieldRows = document.getElementById('fieldRows');
+      const emptyMsg = document.getElementById('emptyMsg');
+      const fieldCount = document.getElementById('fieldCount');
+      const addFieldBtn = document.getElementById('addFieldBtn');
+      const generateBtn = document.getElementById('generateBtn');
+      const copyBtn = document.getElementById('copyBtn');
+      const clearBtn = document.getElementById('clearBtn');
+      const yamlOutput = document.getElementById('yamlOutput');
+      const copyStatus = document.getElementById('copyStatus');
+      const schemaTitleEl = document.getElementById('schemaTitle');
+      const apiTitleEl = document.getElementById('apiTitle');
+      const apiVersionEl = document.getElementById('apiVersion');
+
+      function loadState() {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) {
+              fields = parsed;
+              nextId = fields.reduce((m, f) => Math.max(m, f.id + 1), 1);
+            }
+          }
+          const meta = localStorage.getItem(STORAGE_META_KEY);
+          if (meta) {
+            const m = JSON.parse(meta);
+            if (m.schemaTitle) schemaTitleEl.value = m.schemaTitle;
+            if (m.apiTitle) apiTitleEl.value = m.apiTitle;
+            if (m.apiVersion) apiVersionEl.value = m.apiVersion;
+          }
+        } catch (e) { /* ignore */ }
+      }
+
+      function saveState() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(fields));
+          localStorage.setItem(STORAGE_META_KEY, JSON.stringify({
+            schemaTitle: schemaTitleEl.value,
+            apiTitle: apiTitleEl.value,
+            apiVersion: apiVersionEl.value,
+          }));
+        } catch (e) { /* ignore */ }
+      }
+
+      function createFieldData() {
+        return { id: nextId++, name: '', type: 'string', format: 'none', required: false, description: '' };
+      }
+
+      function buildFormatOptions(type) {
+        const opts = FORMATS[type] || ['none'];
+        return opts.map(f => `<option value="${f}">${f}</option>`).join('');
+      }
+
+      function renderRow(field) {
+        const row = document.createElement('div');
+        row.className = 'grid grid-cols-12 gap-2 items-start bg-gray-800 rounded-lg p-2';
+        row.setAttribute('role', 'listitem');
+        row.setAttribute('data-id', field.id);
+
+        const inputClass = 'w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500';
+        const selectClass = 'w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500';
+
+        row.innerHTML = `
+          <div class="col-span-12 sm:col-span-3">
+            <label class="sm:hidden text-xs text-gray-500 mb-0.5 block">Field Name</label>
+            <input type="text" class="${inputClass} field-name" value="${escAttr(field.name)}"
+              placeholder="fieldName" aria-label="Field name" />
+          </div>
+          <div class="col-span-6 sm:col-span-2">
+            <label class="sm:hidden text-xs text-gray-500 mb-0.5 block">Type</label>
+            <select class="${selectClass} field-type" aria-label="Field type">
+              ${TYPES.map(t => `<option value="${t}"${t === field.type ? ' selected' : ''}>${t}</option>`).join('')}
+            </select>
+          </div>
+          <div class="col-span-6 sm:col-span-2">
+            <label class="sm:hidden text-xs text-gray-500 mb-0.5 block">Format</label>
+            <select class="${selectClass} field-format" aria-label="Field format">
+              ${buildFormatOptions(field.type).replace(`value="${field.format}"`, `value="${field.format}" selected`)}
+            </select>
+          </div>
+          <div class="col-span-4 sm:col-span-1 flex items-center justify-center pt-1 sm:pt-0">
+            <label class="flex flex-col sm:flex-row items-center gap-1 cursor-pointer">
+              <span class="sm:hidden text-xs text-gray-500">Req?</span>
+              <input type="checkbox" class="field-required w-4 h-4 accent-indigo-500" ${field.required ? 'checked' : ''}
+                aria-label="Required field" />
+            </label>
+          </div>
+          <div class="col-span-6 sm:col-span-3">
+            <label class="sm:hidden text-xs text-gray-500 mb-0.5 block">Description</label>
+            <input type="text" class="${inputClass} field-desc" value="${escAttr(field.description)}"
+              placeholder="Optional description" aria-label="Field description" />
+          </div>
+          <div class="col-span-2 sm:col-span-1 flex justify-end">
+            <button class="remove-btn text-red-400 hover:text-red-300 text-lg leading-none px-1 py-1 focus:outline-none focus:ring-2 focus:ring-red-400 rounded"
+              aria-label="Remove field">✕</button>
+          </div>
+        `;
+
+        // Events
+        const nameInput = row.querySelector('.field-name');
+        const typeSelect = row.querySelector('.field-type');
+        const formatSelect = row.querySelector('.field-format');
+        const reqCheck = row.querySelector('.field-required');
+        const descInput = row.querySelector('.field-desc');
+        const removeBtn = row.querySelector('.remove-btn');
+
+        nameInput.addEventListener('input', () => { field.name = nameInput.value; saveState(); });
+        typeSelect.addEventListener('change', () => {
+          field.type = typeSelect.value;
+          formatSelect.innerHTML = buildFormatOptions(field.type);
+          field.format = 'none';
+          saveState();
+        });
+        formatSelect.addEventListener('change', () => { field.format = formatSelect.value; saveState(); });
+        reqCheck.addEventListener('change', () => { field.required = reqCheck.checked; saveState(); });
+        descInput.addEventListener('input', () => { field.description = descInput.value; saveState(); });
+        removeBtn.addEventListener('click', () => removeField(field.id));
+
+        return row;
+      }
+
+      function escAttr(str) {
+        return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+
+      function renderAll() {
+        fieldRows.innerHTML = '';
+        fields.forEach(f => fieldRows.appendChild(renderRow(f)));
+        emptyMsg.style.display = fields.length === 0 ? 'block' : 'none';
+        fieldCount.textContent = `(${fields.length}/20)`;
+        addFieldBtn.disabled = fields.length >= MAX_FIELDS;
+      }
+
+      function addField() {
+        if (fields.length >= MAX_FIELDS) return;
+        const f = createFieldData();
+        fields.push(f);
+        saveState();
+        renderAll();
+        // Focus the new name input
+        const rows = fieldRows.querySelectorAll('[data-id]');
+        const last = rows[rows.length - 1];
+        if (last) last.querySelector('.field-name').focus();
+      }
+
+      function removeField(id) {
+        fields = fields.filter(f => f.id !== id);
+        saveState();
+        renderAll();
+      }
+
+      function indent(n) { return '  '.repeat(n); }
+
+      function generateYAML() {
+        const schemaTitle = schemaTitleEl.value.trim() || 'MyModel';
+        const apiTitle = apiTitleEl.value.trim() || 'My API';
+        const apiVersion = apiVersionEl.value.trim() || '1.0.0';
+        const path = '/' + schemaTitle.toLowerCase() + 's';
+
+        const requiredFields = fields.filter(f => f.required && f.name.trim());
+
+        let yaml = '';
+        yaml += 'openapi: "3.1.0"\n';
+        yaml += 'info:\n';
+        yaml += `  title: ${yamlStr(apiTitle)}\n`;
+        yaml += `  version: ${yamlStr(apiVersion)}\n`;
+        yaml += 'paths:\n';
+        yaml += `  ${path}:\n`;
+        yaml += '    get:\n';
+        yaml += `      summary: List ${schemaTitle} resources\n`;
+        yaml += `      operationId: list${schemaTitle}\n`;
+        yaml += '      tags:\n';
+        yaml += `        - ${schemaTitle}\n`;
+        yaml += '      responses:\n';
+        yaml += '        "200":\n';
+        yaml += `          description: Successful list of ${schemaTitle}\n`;
+        yaml += '          content:\n';
+        yaml += '            application/json:\n';
+        yaml += '              schema:\n';
+        yaml += '                type: array\n';
+        yaml += '                items:\n';
+        yaml += `                  $ref: "#/components/schemas/${schemaTitle}"\n`;
+        yaml += '    post:\n';
+        yaml += `      summary: Create a ${schemaTitle}\n`;
+        yaml += `      operationId: create${schemaTitle}\n`;
+        yaml += '      tags:\n';
+        yaml += `        - ${schemaTitle}\n`;
+        yaml += '      requestBody:\n';
+        yaml += '        required: true\n';
+        yaml += '        content:\n';
+        yaml += '          application/json:\n';
+        yaml += '            schema:\n';
+        yaml += `              $ref: "#/components/schemas/${schemaTitle}"\n`;
+        yaml += '      responses:\n';
+        yaml += '        "201":\n';
+        yaml += `          description: ${schemaTitle} created\n`;
+        yaml += '          content:\n';
+        yaml += '            application/json:\n';
+        yaml += '              schema:\n';
+        yaml += `                $ref: "#/components/schemas/${schemaTitle}"\n`;
+        yaml += `  ${path}/{id}:\n`;
+        yaml += '    parameters:\n';
+        yaml += '      - name: id\n';
+        yaml += '        in: path\n';
+        yaml += '        required: true\n';
+        yaml += '        schema:\n';
+        yaml += '          type: string\n';
+        yaml += '    get:\n';
+        yaml += `      summary: Get a ${schemaTitle} by ID\n`;
+        yaml += `      operationId: get${schemaTitle}ById\n`;
+        yaml += '      tags:\n';
+        yaml += `        - ${schemaTitle}\n`;
+        yaml += '      responses:\n';
+        yaml += '        "200":\n';
+        yaml += `          description: ${schemaTitle} found\n`;
+        yaml += '          content:\n';
+        yaml += '            application/json:\n';
+        yaml += '              schema:\n';
+        yaml += `                $ref: "#/components/schemas/${schemaTitle}"\n`;
+        yaml += '        "404":\n';
+        yaml += '          description: Not found\n';
+        yaml += '    put:\n';
+        yaml += `      summary: Update a ${schemaTitle}\n`;
+        yaml += `      operationId: update${schemaTitle}\n`;
+        yaml += '      tags:\n';
+        yaml += `        - ${schemaTitle}\n`;
+        yaml += '      requestBody:\n';
+        yaml += '        required: true\n';
+        yaml += '        content:\n';
+        yaml += '          application/json:\n';
+        yaml += '            schema:\n';
+        yaml += `              $ref: "#/components/schemas/${schemaTitle}"\n`;
+        yaml += '      responses:\n';
+        yaml += '        "200":\n';
+        yaml += `          description: ${schemaTitle} updated\n`;
+        yaml += '    delete:\n';
+        yaml += `      summary: Delete a ${schemaTitle}\n`;
+        yaml += `      operationId: delete${schemaTitle}\n`;
+        yaml += '      tags:\n';
+        yaml += `        - ${schemaTitle}\n`;
+        yaml += '      responses:\n';
+        yaml += '        "204":\n';
+        yaml += '          description: No content\n';
+        yaml += 'components:\n';
+        yaml += '  schemas:\n';
+        yaml += `    ${schemaTitle}:\n`;
+        yaml += '      type: object\n';
+
+        if (requiredFields.length > 0) {
+          yaml += '      required:\n';
+          requiredFields.forEach(f => {
+            yaml += `        - ${f.name.trim()}\n`;
+          });
+        }
+
+        if (fields.length > 0) {
+          yaml += '      properties:\n';
+          fields.forEach(f => {
+            const name = f.name.trim() || 'unnamedField';
+            yaml += `        ${name}:\n`;
+            yaml += `          type: ${f.type}\n`;
+            if (f.format && f.format !== 'none') {
+              yaml += `          format: ${f.format}\n`;
+            }
+            if (f.type === 'array') {
+              yaml += '          items:\n';
+              yaml += '            type: string\n';
+            }
+            if (f.description.trim()) {
+              yaml += `          description: ${yamlStr(f.description.trim())}\n`;
+            }
+          });
+        } else {
+          yaml += '      properties: {}\n';
+        }
+
+        yaml += '    ErrorResponse:\n';
+        yaml += '      type: object\n';
+        yaml += '      properties:\n';
+        yaml += '        message:\n';
+        yaml += '          type: string\n';
+        yaml += '        code:\n';
+        yaml += '          type: integer\n';
+        yaml += '          format: int32\n';
+
+        return yaml;
+      }
+
+      function yamlStr(s) {
+        if (/[:#\[\]{}&*?|<>=!%@`,\n]/.test(s) || s.includes("'")) {
+          return '"' + s.replace(/"/g, '\\"') + '"';
+        }
+        return s;
+      }
+
+      // Button handlers
+      addFieldBtn.addEventListener('click', addField);
+
+      generateBtn.addEventListener('click', () => {
+        const yaml = generateYAML();
+        yamlOutput.value = yaml;
+        copyBtn.disabled = false;
+        saveState();
+      });
+
+      copyBtn.addEventListener('click', () => {
+        if (!yamlOutput.value) return;
+        try {
+          navigator.clipboard.writeText(yamlOutput.value).then(() => {
+            copyStatus.style.opacity = '1';
+            setTimeout(() => { copyStatus.style.opacity = '0'; }, 2000);
+          });
+        } catch (e) {
+          yamlOutput.select();
+          document.execCommand('copy');
+          copyStatus.style.opacity = '1';
+          setTimeout(() => { copyStatus.style.opacity = '0'; }, 2000);
+        }
+      });
+
+      clearBtn.addEventListener('click', () => {
+        if (fields.length === 0) return;
+        if (confirm('Clear all fields? This cannot be undone.')) {
+          fields = [];
+          nextId = 1;
+          saveState();
+          renderAll();
+          yamlOutput.value = '';
+          copyBtn.disabled = true;
+        }
+      });
+
+      [schemaTitleEl, apiTitleEl, apiVersionEl].forEach(el => {
+        el.addEventListener('input', saveState);
+      });
+
+      // Init
+      loadState();
+      renderAll();
+    })();
+  </script>
+</body>
+</html>
